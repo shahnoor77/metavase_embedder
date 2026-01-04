@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # ===============================
+  # Application Database (Postgres)
+  # ===============================
+  app-postgres:
+    image: postgres:15-alpine
+    container_name: application-db
+    environment:
+      POSTGRES_DB: ${APP_DB_NAME}
+      POSTGRES_USER: ${APP_DB_USER}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - app-postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${APP_DB_USER} -d ${APP_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==================================
+  # Metabase Metadata Database (Postgres)
+  # ==================================
+  metabase-postgres:
+    image: postgres:15-alpine
+    container_name: metabase-postgres
+    environment:
+      POSTGRES_DB: ${METABASE_DB_NAME}
+      POSTGRES_USER: ${METABASE_DB_USER}
+      POSTGRES_PASSWORD: ${METABASE_DB_PASSWORD}
+    volumes:
+      - metabase-postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${METABASE_DB_USER} -d ${METABASE_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===============================
+  # Metabase
+  # ===============================
+  metabase:
+    image: metabase/metabase:v0.48.0
+    container_name: metabase
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: metabase-postgres
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: ${METABASE_DB_NAME}
+      MB_DB_USER: ${METABASE_DB_USER}
+      MB_DB_PASS: ${METABASE_DB_PASSWORD}
+
+      MB_EMBEDDING_SECRET_KEY: ${METABASE_EMBEDDING_SECRET}
+    depends_on:
+      metabase-postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  # ===============================
+  # Application Backend (FastAPI)
+  # ===============================
+  app-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: app-backend
+    environment:
+      # FIX: Prevents "Bad address (os error 14)" by using polling
+      WATCHFILES_FORCE_POLLING: "true"
+      
+      APP_DB_HOST: application-db
+      APP_DB_PORT: 5432
+      APP_DB_NAME: ${APP_DB_NAME}
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS}
+      METABASE_URL: http://metabase:3000
+      METABASE_EMAIL: ${METABASE_EMAIL}
+      METABASE_PASSWORD: ${METABASE_PASSWORD}
+      METABASE_EMBEDDING_SECRET: ${METABASE_EMBEDDING_SECRET}
+      ANALYTICS_DB_HOST: ${ANALYTICS_DB_HOST}
+      ANALYTICS_DB_PORT: ${ANALYTICS_DB_PORT}
+      ANALYTICS_DB_NAME: ${ANALYTICS_DB_NAME}
+      ANALYTICS_DB_USER: ${ANALYTICS_DB_USER}
+      ANALYTICS_DB_PASSWORD: ${ANALYTICS_DB_PASSWORD}
+
+    depends_on:
+      app-postgres:
+        condition: service_healthy
+      metabase:
+        condition: service_healthy
+    networks:
+      - backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # This mounts your local 'app' folder to '/app/app' inside the container
+      - ./app:/app/app
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  app-postgres-data:
+  metabase-postgres-data:
