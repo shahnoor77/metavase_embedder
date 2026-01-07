@@ -28,8 +28,8 @@ export const AuthProvider = ({ children }) => {
     return result
   }
 
-  const register = async (email, password, fullName) => {
-    const result = await authService.register(email, password, fullName)
+  const register = async (email, password, firstName, lastName) => {
+    const result = await authService.register(email, password, firstName, lastName)
     if (result.success) {
       localStorage.setItem('token', result.data.access_token)
       localStorage.setItem('userEmail', email)

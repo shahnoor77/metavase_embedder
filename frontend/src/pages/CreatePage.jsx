@@ -14,7 +14,7 @@ export default function CreatePage() {
 
   const [workspaceForm, setWorkspaceForm] = useState({
     name: '',
-    slug: '',
+    description: '',
   })
 
   const [dashboardForm, setDashboardForm] = useState({
@@ -47,7 +47,7 @@ export default function CreatePage() {
     try {
       const response = await workspaceAPI.create(workspaceForm)
       toast.success('Workspace created successfully!')
-      setWorkspaceForm({ name: '', slug: '' })
+      setWorkspaceForm({ name: '', description: '' })
       setTimeout(() => {
         navigate('/workspaces')
       }, 1500)
@@ -147,13 +147,12 @@ export default function CreatePage() {
                 <input
                   type="text"
                   value={workspaceForm.name}
-                  onChange={(e) => {
-                    const name = e.target.value
+                  onChange={(e) =>
                     setWorkspaceForm({
-                      name,
-                      slug: generateSlug(name),
+                      ...workspaceForm,
+                      name: e.target.value,
                     })
-                  }}
+                  }
                   className="input-field"
                   placeholder="e.g., Marketing Analytics"
                   required
@@ -165,23 +164,20 @@ export default function CreatePage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Workspace Slug <span className="text-red-500">*</span>
+                  Description
                 </label>
                 <input
                   type="text"
-                  value={workspaceForm.slug}
+                  value={workspaceForm.description}
                   onChange={(e) =>
-                    setWorkspaceForm({ ...workspaceForm, slug: e.target.value })
+                    setWorkspaceForm({
+                      ...workspaceForm,
+                      description: e.target.value,
+                    })
                   }
                   className="input-field"
-                  placeholder="e.g., marketing-analytics"
-                  required
-                  pattern="[a-z0-9-]+"
-                  title="Only lowercase letters, numbers, and hyphens are allowed"
+                  placeholder="Optional description"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  This will be used in URLs. Only lowercase letters, numbers, and hyphens.
-                </p>
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

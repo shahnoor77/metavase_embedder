@@ -3,6 +3,7 @@ import axios from 'axios'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export const metabaseService = {
+  // Get Metabase session for a workspace
   getWorkspaceSession: async (workspaceId, token) => {
     try {
       const response = await axios.post(
@@ -23,6 +24,7 @@ export const metabaseService = {
     }
   },
 
+  // Get workspace URL
   getWorkspaceUrl: async (workspaceId, token) => {
     try {
       const response = await axios.get(
@@ -42,34 +44,21 @@ export const metabaseService = {
     }
   },
 
-  openMetabaseWorkspace: async (workspaceId, token) => {
-    const sessionResult = await metabaseService.getWorkspaceSession(workspaceId, token)
+  // Open Metabase workspace in new window
+  openMetabaseWorkspace: (workspaceUrl) => {
+    const metabaseWindow = window.open(
+      workspaceUrl,
+      '_blank',
+      'noopener,noreferrer'
+    )
     
-    if (sessionResult.success) {
-      const { session_token, metabase_url, workspace_collection_id } = sessionResult.data
-      
-      // Open Metabase in a new window with the session
-      const collectionUrl = `${metabase_url}/collection/${workspace_collection_id}`
-      
-      // Create a form to POST the session token
-      const form = document.createElement('form')
-      form.method = 'POST'
-      form.action = `${metabase_url}/auth/sso`
-      form.target = '_blank'
-      
-      const tokenInput = document.createElement('input')
-      tokenInput.type = 'hidden'
-      tokenInput.name = 'token'
-      tokenInput.value = session_token
-      
-      form.appendChild(tokenInput)
-      document.body.appendChild(form)
-      form.submit()
-      document.body.removeChild(form)
-      
-      return { success: true }
+    if (!metabaseWindow) {
+      return {
+        success: false,
+        error: 'Please allow popups for this site',
+      }
     }
     
-    return sessionResult
+    return { success: true }
   },
 }

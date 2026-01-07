@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Briefcase, BarChart3, Users, Calendar, ExternalLink } from 'lucide-react'
+import { Briefcase, BarChart3, Users, Calendar, ExternalLink, Settings } from 'lucide-react'
 import { dashboardAPI } from '../../services/api'
 import { metabaseService } from '../../services/metabase'
 import { formatDate } from '../../utils/helpers'
@@ -33,9 +33,13 @@ export default function WorkspaceCard({ workspace, index }) {
       const urlResult = await metabaseService.getWorkspaceUrl(workspace.id, user.token)
       
       if (urlResult.success) {
-        // Open Metabase directly to the collection
-        window.open(urlResult.data.url, '_blank')
-        toast.success('Opening Metabase workspace...')
+        const openResult = metabaseService.openMetabaseWorkspace(urlResult.data.url)
+        
+        if (openResult.success) {
+          toast.success('Opening Metabase workspace...')
+        } else {
+          toast.error(openResult.error)
+        }
       } else {
         toast.error(urlResult.error)
       }
@@ -52,24 +56,30 @@ export default function WorkspaceCard({ workspace, index }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1 }}
       whileHover={{ y: -4 }}
-      className="card hover:shadow-lg transition-all"
+      className="card hover:shadow-lg transition-all group"
     >
       <div className="flex items-start justify-between mb-4">
-        <div className="w-14 h-14 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center">
+        <div className="w-14 h-14 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
           <Briefcase className="w-7 h-7 text-white" />
         </div>
-        <button
-          onClick={handleOpenMetabase}
-          disabled={loading}
-          className="p-2 hover:bg-primary-50 rounded-lg transition-colors text-primary-600 disabled:opacity-50"
-          title="Open in Metabase"
-        >
-          <ExternalLink className="w-5 h-5" />
-        </button>
+        <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={handleOpenMetabase}
+            disabled={loading}
+            className="p-2 hover:bg-primary-50 rounded-lg transition-colors text-primary-600 disabled:opacity-50"
+            title="Open in Metabase"
+          >
+            <ExternalLink className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
-      <h3 className="text-xl font-bold text-gray-900 mb-2">{workspace.name}</h3>
-      <p className="text-sm text-gray-600 mb-4">/{workspace.slug}</p>
+      <h3 className="text-xl font-bold text-gray-900 mb-2 line-clamp-1">
+        {workspace.name}
+      </h3>
+      {workspace.description && (
+        <p className="text-sm text-gray-600 mb-4">{workspace.description}</p>
+      )}
 
       <div className="space-y-2 mb-4">
         <div className="flex items-center text-sm text-gray-600">
@@ -78,11 +88,11 @@ export default function WorkspaceCard({ workspace, index }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+      <div className="flex items-center justify-between pt-4 border-t border-gray-200 mb-4">
         <div className="flex items-center space-x-4 text-sm text-gray-600">
           <div className="flex items-center space-x-1">
             <BarChart3 className="w-4 h-4" />
-            <span>{dashboardCount} dashboards</span>
+            <span>{dashboardCount}</span>
           </div>
           <div className="flex items-center space-x-1">
             <Users className="w-4 h-4" />
@@ -94,9 +104,16 @@ export default function WorkspaceCard({ workspace, index }) {
       <button
         onClick={handleOpenMetabase}
         disabled={loading}
-        className="w-full mt-4 btn-primary disabled:opacity-50"
+        className="w-full btn-primary disabled:opacity-50 flex items-center justify-center"
       >
-        {loading ? 'Opening...' : 'Open in Metabase'}
+        {loading ? (
+          <span>Opening...</span>
+        ) : (
+          <>
+            <ExternalLink className="w-4 h-4 mr-2" />
+            Open in Metabase
+          </>
+        )}
       </button>
     </motion.div>
   )

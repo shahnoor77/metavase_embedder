@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart3, Search, ExternalLink, Maximize2, X } from 'lucide-react'
+import { BarChart3, Search, Plus, ExternalLink } from 'lucide-react'
 import { workspaceAPI, dashboardAPI } from '../services/api'
+import { metabaseService } from '../services/metabase'
+import { useAuth } from '../context/AuthContext'
 import Loading from '../components/Common/Loading'
+import DashboardCard from '../components/Dashboard/DashboardCard'
+import DashboardViewer from '../components/Dashboard/DashboardViewer'
+import Modal from '../components/Common/Modal'
 import toast from 'react-hot-toast'
 
 export default function DashboardsPage() {
@@ -12,6 +17,10 @@ export default function DashboardsPage() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [viewingDashboard, setViewingDashboard] = useState(null)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [newDashboard, setNewDashboard] = useState({ name: '' })
+  const { user } = useAuth()
 
   useEffect(() => {
     loadWorkspaces()
@@ -58,8 +67,46 @@ export default function DashboardsPage() {
     }
   }
 
+  const handleCreateDashboard = async (e) => {
+    e.preventDefault()
+    setCreating(true)
+
+    try {
+      await dashboardAPI.create({
+        workspace_id: selectedWorkspace.id,
+        name: newDashboard.name,
+      })
+      toast.success('Dashboard created successfully!')
+      setShowCreateModal(false)
+      setNewDashboard({ name: '' })
+      loadDashboards()
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to create dashboard')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleOpenInMetabase = async () => {
+    if (!selectedWorkspace) return
+
+    try {
+      const urlResult = await metabaseService.getWorkspaceUrl(selectedWorkspace.id, user.token)
+      if (urlResult.success) {
+        metabaseService.openMetabaseWorkspace(urlResult.data.url)
+        toast.success('Opening Metabase...')
+      } else {
+        toast.error(urlResult.error)
+      }
+    } catch (error) {
+      toast.error('Failed to open Metabase')
+    }
+  }
+
   const filteredDashboards = dashboards.filter((dashboard) =>
-    dashboard.name.toLowerCase().includes(searchQuery.toLowerCase())
+    (dashboard.metabase_dashboard_name || dashboard.name || '')
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase())
   )
 
   if (loading) {
@@ -68,13 +115,34 @@ export default function DashboardsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Dashboards</h1>
-        <p className="text-gray-600 mt-1">
-          View and manage all your analytics dashboards
-        </p>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Dashboards</h1>
+          <p className="text-gray-600 mt-1">
+            View and manage all your analytics dashboards
+          </p>
+        </div>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={handleOpenInMetabase}
+            className="btn-secondary flex items-center space-x-2"
+          >
+            <ExternalLink className="w-5 h-5" />
+            <span>Open Metabase</span>
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="btn-primary flex items-center space-x-2"
+            disabled={!selectedWorkspace}
+          >
+            <Plus className="w-5 h-5" />
+            <span>New Dashboard</span>
+          </button>
+        </div>
       </div>
 
+      {/* Workspace Selector */}
       {workspaces.length > 0 && (
         <div className="card">
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -99,6 +167,7 @@ export default function DashboardsPage() {
         </div>
       )}
 
+      {/* Search */}
       {dashboards.length > 0 && (
         <div className="card">
           <div className="relative">
@@ -114,22 +183,46 @@ export default function DashboardsPage() {
         </div>
       )}
 
+      {/* Dashboards Grid */}
       {filteredDashboards.length === 0 ? (
         <div className="card text-center py-16">
           <BarChart3 className="w-20 h-20 text-gray-300 mx-auto mb-4" />
           <h3 className="text-xl font-bold text-gray-900 mb-2">
-            {searchQuery ? 'No dashboards found' : 'No dashboards in this workspace'}
+            {searchQuery
+              ? 'No dashboards found'
+              : 'No dashboards in this workspace'}
           </h3>
-          <p className="text-gray-600">
-            {searchQuery ? 'Try adjusting your search query' : 'Create your first dashboard to get started'}
+          <p className="text-gray-600 mb-6">
+            {searchQuery
+              ? 'Try adjusting your search query'
+              : 'Create your first dashboard or open Metabase to build one'}
           </p>
+          <div className="flex items-center justify-center space-x-3">
+            <button
+              onClick={handleOpenInMetabase}
+              className="btn-secondary flex items-center space-x-2"
+            >
+              <ExternalLink className="w-5 h-5" />
+              <span>Open in Metabase</span>
+            </button>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="btn-primary flex items-center space-x-2"
+            >
+              <Plus className="w-5 h-5" />
+              <span>Create Dashboard</span>
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredDashboards.map((dashboard, index) => (
             <DashboardCard
               key={dashboard.id}
-              dashboard={dashboard}
+              dashboard={{
+                ...dashboard,
+                name: dashboard.metabase_dashboard_name || dashboard.name,
+              }}
               index={index}
               onView={handleViewDashboard}
             />
@@ -137,96 +230,63 @@ export default function DashboardsPage() {
         </div>
       )}
 
+      {/* Dashboard Viewer Modal */}
       <AnimatePresence>
         {viewingDashboard && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setViewingDashboard(null)}
-              className="fixed inset-0 bg-black bg-opacity-75 z-50"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="fixed inset-4 z-50 bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col"
-            >
-              <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
-                <h2 className="text-xl font-bold text-gray-900">
-                  {viewingDashboard.name}
-                </h2>
-                <div className="flex items-center space-x-2">
-                  <a
-                    href={viewingDashboard.embed_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-                  >
-                    <ExternalLink className="w-5 h-5 text-gray-600" />
-                  </a>
-                  <button
-                    onClick={() => setViewingDashboard(null)}
-                    className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-                  >
-                    <X className="w-5 h-5 text-gray-600" />
-                  </button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                {viewingDashboard.embed_url ? (
-                  <iframe
-                    src={viewingDashboard.embed_url}
-                    className="w-full h-full border-0"
-                    title={viewingDashboard.name}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-gray-500">No embed URL available</p>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </>
+          <DashboardViewer
+            dashboard={viewingDashboard}
+            onClose={() => setViewingDashboard(null)}
+          />
         )}
       </AnimatePresence>
-    </div>
-  )
-}
 
-function DashboardCard({ dashboard, index, onView }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.1 }}
-      whileHover={{ y: -4 }}
-      className="card hover:shadow-lg transition-all"
-    >
-      <div className="flex items-start justify-between mb-4">
-        <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-green-700 rounded-xl flex items-center justify-center">
-          <BarChart3 className="w-7 h-7 text-white" />
-        </div>
-        <button
-          onClick={() => onView(dashboard)}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <Maximize2 className="w-5 h-5 text-gray-600" />
-        </button>
-      </div>
-
-      <h3 className="text-xl font-bold text-gray-900 mb-2">{dashboard.name}</h3>
-      <p className="text-sm text-gray-600 mb-4">
-        ID: {dashboard.metabase_dashboard_id}
-      </p>
-
-      <button
-        onClick={() => onView(dashboard)}
-        className="w-full btn-primary"
+      {/* Create Dashboard Modal */}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="Create New Dashboard"
       >
-        View Dashboard
-      </button>
-    </motion.div>
+        <form onSubmit={handleCreateDashboard} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Dashboard Name
+            </label>
+            <input
+              type="text"
+              value={newDashboard.name}
+              onChange={(e) => setNewDashboard({ name: e.target.value })}
+              className="input-field"
+              placeholder="e.g., Sales Report Q1 2024"
+              required
+            />
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-blue-800">
+              This will create an empty dashboard in Metabase. You can then open it
+              in Metabase to add queries, charts, and visualizations.
+            </p>
+          </div>
+
+          <div className="flex space-x-3">
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(false)}
+              className="flex-1 btn-secondary"
+              disabled={creating}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 btn-primary"
+              disabled={creating}
+            >
+              {creating ? 'Creating...' : 'Create Dashboard'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
   )
 }

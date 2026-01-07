@@ -12,6 +12,8 @@ from app.database import engine
 from app.models import Base
 from app.auth.routes import router as auth_router
 from app.workspace.routes import router as workspace_router
+from app.dashboard.routes import router as dashboard_router
+from app.metabase.routes import router as metabase_router
 from app.metabase.client import MetabaseClient
 
 # Configure logging
@@ -163,8 +165,10 @@ async def general_exception_handler(request, exc):
 
 
 # Include routers
-app.include_router(auth_router)
-app.include_router(workspace_router)
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(workspace_router)  # already prefixed with /api/workspaces
+app.include_router(dashboard_router, prefix="/api/dashboards", tags=["dashboards"])
+app.include_router(metabase_router, prefix="/api/metabase", tags=["metabase"])
 
 
 # Root endpoint

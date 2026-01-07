@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
-    full_name: str
+    first_name: str
+    last_name: str | None = None
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -37,7 +38,8 @@ class Token(BaseModel):
 class UserResponse(BaseModel):
     id: int
     email: str
-    full_name: str
+    first_name: str | None = None
+    last_name: str | None = None
     metabase_user_id: int | None = None
     
     class Config:
@@ -58,7 +60,8 @@ async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
     user = User(
         email=user_data.email,
         hashed_password=hashed_password,
-        full_name=user_data.full_name,
+        first_name=user_data.first_name,
+        last_name=user_data.last_name,
         # We store the raw password briefly to create the MB user, 
         # but in production you'd hash this or use a secure vault.
         metabase_password=raw_mb_password 
@@ -69,13 +72,12 @@ async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
 
     # 3. Create Metabase User via API
     try:
-        name_parts = user_data.full_name.split(' ', 1)
         mb_client = MetabaseClient()
         await mb_client.login()
         mb_user = await mb_client.create_metabase_user(
             email=user_data.email,
-            first_name=name_parts[0],
-            last_name=name_parts[1] if len(name_parts) > 1 else "User",
+            first_name=user_data.first_name,
+            last_name=user_data.last_name or "User",
             password=raw_mb_password
         )
         user.metabase_user_id = mb_user['id']
@@ -106,3 +108,9 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
         "token_type": "bearer",
         "metabase_session_id": mb_session_id
     }
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: User = Depends(get_current_user)):
+    """Return the currently authenticated user."""
+    return current_user

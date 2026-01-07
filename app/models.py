@@ -1,3 +1,4 @@
+
 """
 Database models for the application.
 """
@@ -8,7 +9,6 @@ from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
 
-
 class User(Base):
     """User model - stores application users."""
     __tablename__ = "users"
@@ -16,15 +16,19 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
+    metabase_password = Column(String, nullable=True)
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     # Relationships
     workspaces = relationship("Workspace", back_populates="owner", cascade="all, delete-orphan")
     workspace_members = relationship("WorkspaceMember", back_populates="user", cascade="all, delete-orphan")
+    
+    # Shortcut to get all workspaces a user is a member of
+    joined_workspaces = relationship("Workspace", secondary="workspace_members", viewonly=True)
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email})>"
@@ -45,9 +49,7 @@ class Workspace(Base):
     metabase_group_id = Column(Integer, nullable=True)
     metabase_group_name = Column(String, nullable=True)
     
-    # Database connection for this workspace
-    database_id = Column(Integer, nullable=True)  # Metabase database ID
-    
+    database_id = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -56,6 +58,9 @@ class Workspace(Base):
     owner = relationship("User", back_populates="workspaces")
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
     dashboards = relationship("Dashboard", back_populates="workspace", cascade="all, delete-orphan")
+
+    # --- THE FIX: This allows workspace.users to work ---
+    users = relationship("User", secondary="workspace_members", viewonly=True)
 
     def __repr__(self):
         return f"<Workspace(id={self.id}, name={self.name}, owner_id={self.owner_id})>"
@@ -68,15 +73,12 @@ class WorkspaceMember(Base):
     id = Column(Integer, primary_key=True, index=True)
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    role = Column(String, default="viewer")  # owner, editor, viewer
+    role = Column(String, default="viewer") 
     joined_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     workspace = relationship("Workspace", back_populates="members")
     user = relationship("User", back_populates="workspace_members")
-
-    def __repr__(self):
-        return f"<WorkspaceMember(workspace_id={self.workspace_id}, user_id={self.user_id}, role={self.role})>"
 
 
 class Dashboard(Base):
@@ -85,41 +87,25 @@ class Dashboard(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False)
-    
-    # Metabase dashboard reference
     metabase_dashboard_id = Column(Integer, nullable=False)
     metabase_dashboard_name = Column(String, nullable=False)
-    
-    # Dashboard metadata
     description = Column(Text, nullable=True)
     is_public = Column(Boolean, default=False)
-    
-    # Embedding configuration
-    embedding_params = Column(JSON, nullable=True)  # Store embedding parameters
-    
+    embedding_params = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Relationships
     workspace = relationship("Workspace", back_populates="dashboards")
-
-    def __repr__(self):
-        return f"<Dashboard(id={self.id}, name={self.metabase_dashboard_name}, workspace_id={self.workspace_id})>"
 
 
 class MetabaseSession(Base):
-    """MetabaseSession model - tracks active Metabase sessions for audit."""
     __tablename__ = "metabase_sessions"
-
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True)
-    
-    session_token = Column(String, nullable=True)  # Store hashed token for audit
+    session_token = Column(String, nullable=True)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Relationships
     user = relationship("User")
     workspace = relationship("Workspace")
 

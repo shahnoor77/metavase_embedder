@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 from app.database import get_db
-from app.models import User, Workspace, Dashboard, DashboardVersion
+from app.models import User, Workspace, Dashboard
 from app.auth.dependencies import get_current_user
 from app.metabase.client import MetabaseClient
 
@@ -17,12 +17,21 @@ class DashboardResponse(BaseModel):
     id: int
     workspace_id: int
     metabase_dashboard_id: int
-    name: str
-    created_by_id: int
+    metabase_dashboard_name: str
     embed_url: Optional[str] = None
     
     class Config:
         from_attributes = True
+
+def check_workspace_access(user: User, workspace: Workspace):
+    """Helper to check if user is owner or member of the workspace."""
+    is_owner = workspace.owner_id == user.id
+    is_member = user in workspace.users
+    if not (is_owner or is_member):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this workspace"
+        )
 
 @router.post("", response_model=DashboardResponse, status_code=status.HTTP_201_CREATED)
 async def create_dashboard(
@@ -30,20 +39,11 @@ async def create_dashboard(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    workspace = db.query(Workspace).filter(
-        Workspace.id == dashboard_data.workspace_id
-    ).first()
+    workspace = db.query(Workspace).filter(Workspace.id == dashboard_data.workspace_id).first()
     if not workspace:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found"
-        )
+        raise HTTPException(status_code=404, detail="Workspace not found")
     
-    if current_user not in workspace.users:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
+    check_workspace_access(current_user, workspace)
     
     mb_client = MetabaseClient()
     await mb_client.login()
@@ -54,29 +54,17 @@ async def create_dashboard(
             workspace.metabase_collection_id
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create dashboard in Metabase: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Metabase error: {str(e)}")
     
     dashboard = Dashboard(
         workspace_id=workspace.id,
         metabase_dashboard_id=mb_dashboard["id"],
-        name=dashboard_data.name,
-        created_by_id=current_user.id
+        metabase_dashboard_name=dashboard_data.name,
     )
     
     db.add(dashboard)
     db.commit()
     db.refresh(dashboard)
-    
-    version = DashboardVersion(
-        dashboard_id=dashboard.id,
-        snapshot=mb_dashboard
-    )
-    db.add(version)
-    db.commit()
-    
     return dashboard
 
 @router.get("", response_model=List[DashboardResponse])
@@ -87,17 +75,9 @@ def list_dashboards(
 ):
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if not workspace:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found"
-        )
+        raise HTTPException(status_code=404, detail="Workspace not found")
     
-    if current_user not in workspace.users:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
+    check_workspace_access(current_user, workspace)
     return workspace.dashboards
 
 @router.get("/{dashboard_id}", response_model=DashboardResponse)
@@ -108,16 +88,9 @@ async def get_dashboard(
 ):
     dashboard = db.query(Dashboard).filter(Dashboard.id == dashboard_id).first()
     if not dashboard:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dashboard not found"
-        )
+        raise HTTPException(status_code=404, detail="Dashboard not found")
     
-    if current_user not in dashboard.workspace.users:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
+    check_workspace_access(current_user, dashboard.workspace)
     
     mb_client = MetabaseClient()
     await mb_client.login()
@@ -125,10 +98,7 @@ async def get_dashboard(
     try:
         embed_url = mb_client.generate_embed_url(dashboard.metabase_dashboard_id)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate embed URL: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Embed error: {str(e)}")
     
     response_data = DashboardResponse.model_validate(dashboard)
     response_data.embed_url = embed_url

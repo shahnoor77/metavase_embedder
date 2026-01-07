@@ -18,12 +18,13 @@ export const authService = {
     }
   },
 
-  register: async (email, password, fullName) => {
+  register: async (email, password, firstName, lastName) => {
     try {
       const response = await axios.post(`${API_URL}/api/auth/signup`, {
         email,
         password,
-        full_name: fullName,
+        first_name: firstName,
+        last_name: lastName,
       })
       return { success: true, data: response.data }
     } catch (error) {

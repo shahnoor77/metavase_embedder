@@ -246,7 +246,9 @@ function WorkspaceCard({ workspace, index }) {
             <Briefcase className="w-6 h-6 text-white" />
           </div>
           <h3 className="font-bold text-gray-900 mb-1">{workspace.name}</h3>
-          <p className="text-sm text-gray-600">{workspace.slug}</p>
+          {workspace.description && (
+            <p className="text-sm text-gray-600">{workspace.description}</p>
+          )}
         </div>
       </Link>
     </motion.div>
