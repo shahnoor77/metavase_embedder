@@ -1,54 +1,61 @@
 import { useState } from 'react'
-import { ExternalLink, AlertCircle } from 'lucide-react'
-import { metabaseService } from '../../services/metabase'
-import { useAuth } from '../../context/AuthContext'
+import { ExternalLink, Loader2 } from 'lucide-react'
+import { workspaceAPI } from '../../services/api'
 import toast from 'react-hot-toast'
 import { motion } from 'framer-motion'
 
 export default function MetabaseOpener({ workspace, buttonText = "Open in Metabase", className = "" }) {
   const [loading, setLoading] = useState(false)
-  const { user } = useAuth()
 
   const handleOpen = async () => {
-    setLoading(true)
+    if (!workspace?.id) {
+      return toast.error("Invalid workspace selection");
+    }
 
+    setLoading(true)
     try {
-      // Get workspace URL
-      const urlResult = await metabaseService.getWorkspaceUrl(workspace.id, user.token)
+      // We call the backend to get the specific redirect or dashboard URL for this workspace
+      // Using the workspaceAPI we established in api.js
+      const response = await workspaceAPI.getById(workspace.id)
       
-      if (urlResult.success) {
-        // Open Metabase
-        const openResult = metabaseService.openMetabaseWorkspace(urlResult.data.url)
-        
-        if (openResult.success) {
-          toast.success('Opening Metabase workspace...')
-        } else {
-          toast.error(openResult.error)
-        }
+      // If your backend returns a specific Metabase URL for the workspace
+      const metabaseUrl = response.data.metabase_url || response.data.external_link;
+
+      if (metabaseUrl) {
+        toast.success('Redirecting to Metabase...')
+        window.open(metabaseUrl, '_blank', 'noopener,noreferrer')
       } else {
-        toast.error(urlResult.error)
+        toast.error('Metabase URL not configured for this workspace')
       }
     } catch (error) {
-      toast.error('Failed to open Metabase')
+      console.error('Metabase Opener Error:', error)
+      toast.error('Failed to connect to Metabase')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <button
+    <motion.button
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
       onClick={handleOpen}
       disabled={loading}
-      className={`${className} disabled:opacity-50 disabled:cursor-not-allowed`}
+      className={`flex items-center justify-center font-semibold transition-all ${className} ${
+        loading ? 'opacity-70 cursor-not-allowed' : ''
+      }`}
     >
       {loading ? (
-        <span>Opening...</span>
+        <>
+          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+          <span>Connecting...</span>
+        </>
       ) : (
         <>
-          <ExternalLink className="w-5 h-5 mr-2 inline" />
-          {buttonText}
+          <ExternalLink className="w-5 h-5 mr-2" />
+          <span>{buttonText}</span>
         </>
       )}
-    </button>
+    </motion.button>
   )
 }

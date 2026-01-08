@@ -1,16 +1,13 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Briefcase, BarChart3, Users, Calendar, ExternalLink, Settings } from 'lucide-react'
-import { dashboardAPI } from '../../services/api'
-import { metabaseService } from '../../services/metabase'
+import { Briefcase, BarChart3, Users, Calendar, ExternalLink, Loader2 } from 'lucide-react'
+import { dashboardAPI, workspaceAPI } from '../../services/api'
 import { formatDate } from '../../utils/helpers'
-import { useAuth } from '../../context/AuthContext'
 import toast from 'react-hot-toast'
 
 export default function WorkspaceCard({ workspace, index }) {
   const [dashboardCount, setDashboardCount] = useState(0)
   const [loading, setLoading] = useState(false)
-  const { user } = useAuth()
 
   useEffect(() => {
     loadDashboardCount()
@@ -21,7 +18,7 @@ export default function WorkspaceCard({ workspace, index }) {
       const response = await dashboardAPI.getAll(workspace.id)
       setDashboardCount(response.data.length)
     } catch (error) {
-      console.error('Error loading dashboard count:', error)
+      console.error('Count error:', error)
     }
   }
 
@@ -30,21 +27,18 @@ export default function WorkspaceCard({ workspace, index }) {
     setLoading(true)
 
     try {
-      const urlResult = await metabaseService.getWorkspaceUrl(workspace.id, user.token)
-      
-      if (urlResult.success) {
-        const openResult = metabaseService.openMetabaseWorkspace(urlResult.data.url)
-        
-        if (openResult.success) {
-          toast.success('Opening Metabase workspace...')
-        } else {
-          toast.error(openResult.error)
-        }
+      // Get the workspace details which includes its specific Metabase URL
+      const response = await workspaceAPI.getById(workspace.id)
+      const url = response.data.metabase_url || response.data.external_link
+
+      if (url) {
+        toast.success('Redirecting to Metabase...')
+        window.open(url, '_blank', 'noopener,noreferrer')
       } else {
-        toast.error(urlResult.error)
+        toast.error('Metabase is not yet configured for this workspace')
       }
     } catch (error) {
-      toast.error('Failed to open Metabase')
+      toast.error('Failed to retrieve Metabase session')
     } finally {
       setLoading(false)
     }
@@ -55,66 +49,51 @@ export default function WorkspaceCard({ workspace, index }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1 }}
-      whileHover={{ y: -4 }}
-      className="card hover:shadow-lg transition-all group"
+      className="card hover:shadow-xl transition-all group border border-gray-100"
     >
       <div className="flex items-start justify-between mb-4">
-        <div className="w-14 h-14 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-          <Briefcase className="w-7 h-7 text-white" />
+        <div className="w-14 h-14 bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl flex items-center justify-center text-white shadow-lg group-hover:scale-105 transition-transform">
+          <Briefcase className="w-7 h-7" />
         </div>
-        <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={handleOpenMetabase}
-            disabled={loading}
-            className="p-2 hover:bg-primary-50 rounded-lg transition-colors text-primary-600 disabled:opacity-50"
-            title="Open in Metabase"
-          >
-            <ExternalLink className="w-5 h-5" />
-          </button>
-        </div>
+        <button
+          onClick={handleOpenMetabase}
+          disabled={loading}
+          className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+        >
+          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ExternalLink className="w-5 h-5" />}
+        </button>
       </div>
 
-      <h3 className="text-xl font-bold text-gray-900 mb-2 line-clamp-1">
-        {workspace.name}
-      </h3>
-      {workspace.description && (
-        <p className="text-sm text-gray-600 mb-4">{workspace.description}</p>
-      )}
+      <h3 className="text-xl font-bold text-gray-900 mb-1">{workspace.name}</h3>
+      <p className="text-sm text-gray-500 mb-4 line-clamp-2">
+        {workspace.description || 'Standard analytics workspace for team collaboration.'}
+      </p>
 
-      <div className="space-y-2 mb-4">
+      <div className="flex items-center space-x-4 py-3 border-y border-gray-50 mb-4">
         <div className="flex items-center text-sm text-gray-600">
-          <Calendar className="w-4 h-4 mr-2" />
-          <span>Created {formatDate(workspace.created_at)}</span>
+          <BarChart3 className="w-4 h-4 mr-1.5 text-primary-500" />
+          <span className="font-semibold">{dashboardCount}</span>
+          <span className="ml-1 text-gray-400 font-normal">Dashboards</span>
+        </div>
+        <div className="flex items-center text-sm text-gray-600">
+          <Users className="w-4 h-4 mr-1.5 text-blue-500" />
+          <span className="font-semibold">1</span>
+          <span className="ml-1 text-gray-400 font-normal">Member</span>
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-4 border-t border-gray-200 mb-4">
-        <div className="flex items-center space-x-4 text-sm text-gray-600">
-          <div className="flex items-center space-x-1">
-            <BarChart3 className="w-4 h-4" />
-            <span>{dashboardCount}</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <Users className="w-4 h-4" />
-            <span>1 member</span>
-          </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center text-xs text-gray-400">
+          <Calendar className="w-3.5 h-3.5 mr-1" />
+          {formatDate(workspace.created_at)}
         </div>
+        <button
+          onClick={handleOpenMetabase}
+          className="text-sm font-bold text-primary-600 hover:text-primary-700"
+        >
+          Enter Workspace →
+        </button>
       </div>
-
-      <button
-        onClick={handleOpenMetabase}
-        disabled={loading}
-        className="w-full btn-primary disabled:opacity-50 flex items-center justify-center"
-      >
-        {loading ? (
-          <span>Opening...</span>
-        ) : (
-          <>
-            <ExternalLink className="w-4 h-4 mr-2" />
-            Open in Metabase
-          </>
-        )}
-      </button>
     </motion.div>
   )
 }

@@ -92,6 +92,6 @@ async def get_workspace_url(
     
     # Return the collection URL
     return {
-        "url": f"http://localhost:3000/collection/{workspace.metabase_collection_id}",
+        "url": f"http://localhost:3000/collection/{workspace.metabase_collection_id}", # Use metabase_url instead of direct url, I used it for testing.
         "collection_id": workspace.metabase_collection_id
     }

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Folder, Calendar, Users, ExternalLink } from 'lucide-react';
-import api from '../services/api';
+import { Plus, Folder, Calendar, ExternalLink, Loader2, X } from 'lucide-react';
+import { workspaceAPI } from '../services/api'; // Using the modular API we built
+import toast from 'react-hot-toast';
 
 const WorkspaceList = () => {
   const [workspaces, setWorkspaces] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createForm, setCreateForm] = useState({
     name: '',
@@ -21,11 +21,10 @@ const WorkspaceList = () => {
   const loadWorkspaces = async () => {
     try {
       setLoading(true);
-      setError(null);
-      const data = await api.getWorkspaces();
-      setWorkspaces(data);
+      const response = await workspaceAPI.getAll();
+      setWorkspaces(response.data);
     } catch (err) {
-      setError(err.message || 'Failed to load workspaces');
+      toast.error(err.response?.data?.detail || 'Failed to load workspaces');
       console.error('Error loading workspaces:', err);
     } finally {
       setLoading(false);
@@ -34,47 +33,46 @@ const WorkspaceList = () => {
 
   const handleCreateWorkspace = async (e) => {
     e.preventDefault();
-    
-    if (!createForm.name.trim()) {
-      alert('Please enter a workspace name');
-      return;
-    }
+    if (!createForm.name.trim()) return toast.error('Please enter a name');
 
     try {
       setCreating(true);
-      setError(null);
+      // We send name and description to our backend
+      const response = await workspaceAPI.create(createForm);
       
-      const newWorkspace = await api.createWorkspace(createForm);
-      
-      setWorkspaces([newWorkspace, ...workspaces]);
+      setWorkspaces([response.data, ...workspaces]);
       setShowCreateModal(false);
       setCreateForm({ name: '', description: '' });
-      
-      alert('Workspace created successfully!');
+      toast.success('Workspace created and Metabase group provisioned!');
     } catch (err) {
-      setError(err.message || 'Failed to create workspace');
-      console.error('Error creating workspace:', err);
+      toast.error(err.response?.data?.detail || 'Failed to create workspace');
     } finally {
       setCreating(false);
     }
   };
 
-  const handleOpenWorkspace = async (workspaceId) => {
+  const handleOpenWorkspace = async (workspace) => {
+    const loadingToast = toast.loading('Generating secure session...');
     try {
-      const { url } = await api.getWorkspaceEmbeddedUrl(workspaceId);
-      
-      // Open embedded Metabase in new window/tab
-      const metabaseUrl = `${process.env.REACT_APP_METABASE_URL}${url}`;
-      window.open(metabaseUrl, '_blank');
+      // Fetch the most recent Metabase URL for this specific workspace
+      const response = await workspaceAPI.getById(workspace.id);
+      const url = response.data.metabase_url;
+
+      if (url) {
+        toast.dismiss(loadingToast);
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else {
+        throw new Error('Metabase URL not found for this workspace');
+      }
     } catch (err) {
-      alert('Failed to open workspace: ' + (err.message || 'Unknown error'));
-      console.error('Error opening workspace:', err);
+      toast.dismiss(loadingToast);
+      toast.error('Could not open Metabase: ' + err.message);
     }
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
+    if (!dateString) return 'Recent';
+    return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
@@ -83,11 +81,9 @@ const WorkspaceList = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading workspaces...</p>
-        </div>
+      <div className="flex flex-col items-center justify-center h-96">
+        <Loader2 className="h-12 w-12 text-blue-600 animate-spin mb-4" />
+        <p className="text-gray-500 font-medium">Loading your analytics environment...</p>
       </div>
     );
   }
@@ -95,93 +91,63 @@ const WorkspaceList = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">My Workspaces</h1>
-            <p className="mt-2 text-gray-600">
-              Manage your analytics workspaces and dashboards
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-          >
-            <Plus className="h-5 w-5 mr-2" />
-            New Workspace
-          </button>
+      <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">My Workspaces</h1>
+          <p className="mt-2 text-gray-600">
+            Manage your multi-tenant analytics collections and user groups.
+          </p>
         </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="inline-flex items-center px-6 py-3 rounded-xl shadow-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-all active:scale-95"
+        >
+          <Plus className="h-5 w-5 mr-2" />
+          New Workspace
+        </button>
       </div>
-
-      {/* Error Message */}
-      {error && (
-        <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-          {error}
-        </div>
-      )}
 
       {/* Workspaces Grid */}
       {workspaces.length === 0 ? (
-        <div className="text-center py-12">
-          <Folder className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No workspaces</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            Get started by creating a new workspace
-          </p>
-          <div className="mt-6">
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-            >
-              <Plus className="h-5 w-5 mr-2" />
-              New Workspace
-            </button>
-          </div>
+        <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100">
+          <Folder className="mx-auto h-16 w-16 text-gray-200" />
+          <h3 className="mt-4 text-lg font-bold text-gray-900">No workspaces found</h3>
+          <p className="mt-1 text-gray-500">Get started by creating a new workspace for your team.</p>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="mt-6 inline-flex items-center px-4 py-2 text-blue-600 font-bold hover:underline"
+          >
+            Create your first workspace →
+          </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
           {workspaces.map((workspace) => (
             <div
               key={workspace.id}
-              className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200 hover:shadow-md transition-shadow"
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl transition-all group overflow-hidden"
             >
               <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <Folder className="h-8 w-8 text-blue-600" />
-                    </div>
-                    <div className="ml-3">
-                      <h3 className="text-lg font-medium text-gray-900">
-                        {workspace.name}
-                      </h3>
-                    </div>
-                  </div>
+                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                  <Folder className="h-6 w-6" />
                 </div>
+                
+                <h3 className="text-xl font-bold text-gray-900 mb-2">{workspace.name}</h3>
+                <p className="text-sm text-gray-500 mb-6 line-clamp-2 h-10">
+                  {workspace.description || 'No description provided for this workspace.'}
+                </p>
 
-                {workspace.description && (
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-2">
-                    {workspace.description}
-                  </p>
-                )}
-
-                <div className="flex items-center text-sm text-gray-500 mb-4">
+                <div className="flex items-center text-xs text-gray-400 mb-6">
                   <Calendar className="h-4 w-4 mr-2" />
                   Created {formatDate(workspace.created_at)}
                 </div>
 
-                {workspace.metabase_collection_id && (
-                  <div className="text-xs text-gray-400 mb-4">
-                    Collection ID: {workspace.metabase_collection_id}
-                  </div>
-                )}
-
                 <button
-                  onClick={() => handleOpenWorkspace(workspace.id)}
-                  className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                  onClick={() => handleOpenWorkspace(workspace)}
+                  className="w-full inline-flex items-center justify-center px-4 py-3 rounded-xl font-bold text-blue-600 bg-blue-50 hover:bg-blue-600 hover:text-white transition-all"
                 >
                   <ExternalLink className="h-4 w-4 mr-2" />
-                  Open in Metabase
+                  Open Metabase
                 </button>
               </div>
             </div>
@@ -191,77 +157,54 @@ const WorkspaceList = () => {
 
       {/* Create Workspace Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">
-                Create New Workspace
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">New Workspace</h3>
+              <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <form onSubmit={handleCreateWorkspace}>
-              <div className="px-6 py-4">
-                <div className="mb-4">
-                  <label
-                    htmlFor="name"
-                    className="block text-sm font-medium text-gray-700 mb-2"
-                  >
-                    Workspace Name *
-                  </label>
-                  <input
-                    type="text"
-                    id="name"
-                    value={createForm.name}
-                    onChange={(e) =>
-                      setCreateForm({ ...createForm, name: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="My Analytics Workspace"
-                    required
-                  />
-                </div>
-
-                <div className="mb-4">
-                  <label
-                    htmlFor="description"
-                    className="block text-sm font-medium text-gray-700 mb-2"
-                  >
-                    Description
-                  </label>
-                  <textarea
-                    id="description"
-                    value={createForm.description}
-                    onChange={(e) =>
-                      setCreateForm({
-                        ...createForm,
-                        description: e.target.value,
-                      })
-                    }
-                    rows="3"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Optional description for your workspace"
-                  />
-                </div>
+            <form onSubmit={handleCreateWorkspace} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Workspace Name</label>
+                <input
+                  type="text"
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="e.g. Sales Team"
+                  required
+                />
               </div>
 
-              <div className="px-6 py-4 bg-gray-50 rounded-b-lg flex justify-end space-x-3">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Description</label>
+                <textarea
+                  value={createForm.description}
+                  onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="What is this workspace for?"
+                  rows="3"
+                />
+              </div>
+
+              <div className="pt-4 flex space-x-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setCreateForm({ name: '', description: '' });
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                  disabled={creating}
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 px-4 py-2 text-gray-600 font-semibold hover:bg-gray-50 rounded-lg transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={creating}
+                  className="flex-1 bg-blue-600 text-white font-bold py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
                 >
-                  {creating ? 'Creating...' : 'Create Workspace'}
+                  {creating ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create'}
                 </button>
               </div>
             </form>

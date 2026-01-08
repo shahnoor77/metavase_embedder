@@ -2,7 +2,6 @@ import httpx
 import jwt
 import logging
 import time
-import asyncio
 from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -23,9 +22,10 @@ class MetabaseClient:
         return headers
 
     async def _get_session_token(self):
+        """Authenticates with Metabase and caches the session token."""
         if self.session_token and time.time() < self.token_expiry:
             return self.session_token
-
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{self.base_url}/api/session",
@@ -33,118 +33,51 @@ class MetabaseClient:
             )
             response.raise_for_status()
             self.session_token = response.json()["id"]
-            self.token_expiry = time.time() + (60 * 60 * 2) 
+            self.token_expiry = time.time() + 3600  # 1 hour validity
             return self.session_token
 
-    # ==================== STARTUP & SETUP ====================
-
-    async def check_health(self, retries: int = 5, delay: int = 10) -> bool:
-        for i in range(retries):
-            try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(f"{self.base_url}/api/health", timeout=5.0)
-                    if response.status_code == 200:
-                        return True
-            except Exception:
-                pass
-            logger.info(f"Waiting for Metabase... ({i+1}/{retries})")
-            await asyncio.sleep(delay)
-        return False
-
-    async def get_setup_token(self) -> Optional[str]:
+    async def check_health(self) -> bool:
+        """Checks if the Metabase service is reachable."""
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(f"{self.base_url}/api/session/properties")
-                return response.json().get("setup-token")
-        except Exception:
-            return None
+                resp = await client.get(f"{self.base_url}/api/health", timeout=5.0)
+                return resp.status_code == 200
+        except:
+            return False
 
     async def setup_admin(self, setup_token: str):
+        """Handles the initial Metabase setup (Provisioning the first admin)."""
         payload = {
             "token": setup_token,
             "user": {
-                "first_name": "Admin", "last_name": "User",
-                "email": self.admin_email, "password": self.admin_password,
-                "site_name": "Analytics Platform"
+                "first_name": "Admin", 
+                "last_name": "User", 
+                "email": self.admin_email, 
+                "password": self.admin_password
             },
-            "prefs": {"allow_tracking": False, "site_name": "Analytics Platform"}
+            "prefs": {"site_name": "Analytics Platform"}
         }
         async with httpx.AsyncClient() as client:
-            response = await client.post(f"{self.base_url}/api/setup", json=payload)
-            response.raise_for_status()
-            self.session_token = response.json().get("id")
-            return self.session_token
+            resp = await client.post(f"{self.base_url}/api/setup", json=payload)
+            resp.raise_for_status()
 
     async def setup_metabase(self):
+        """Enables global embedding settings in Metabase."""
         await self._get_session_token()
         async with httpx.AsyncClient() as client:
             await client.put(
-                f"{self.base_url}/api/setting/enable-embedding",
-                json={"value": True},
+                f"{self.base_url}/api/setting/enable-embedding", 
+                json={"value": True}, 
                 headers=self._get_headers()
             )
 
-    # ==================== DATABASE PROVISIONING ====================
-
-    async def add_database(self, name: str, engine: str, host: str, port: int, dbname: str, user: str, password: str):
-        await self._get_session_token()
-        
-        # Postgres specific details
-        details = {
-            "host": host,
-            "port": int(port),
-            "dbname": dbname,
-            "user": user,
-            "password": password,
-            "ssl": False
-        }
-
-        payload = {
-            "name": name,
-            "engine": engine, # "postgres"
-            "details": details,
-            "auto_run_queries": True,
-            "is_full_sync": True
-        }
-        
+    async def get_setup_token(self) -> Optional[str]:
+        """Retrieves the setup token required for first-time provisioning."""
         async with httpx.AsyncClient() as client:
-            response = await client.post(f"{self.base_url}/api/database", json=payload, headers=self._get_headers())
-            if response.status_code != 200:
-                logger.error(f"Failed to add DB: {response.text}")
-                return None
-            return response.json()
+            resp = await client.get(f"{self.base_url}/api/session/properties")
+            return resp.json().get("setup-token")
 
-    async def list_databases(self):
-        await self._get_session_token()
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{self.base_url}/api/database", headers=self._get_headers())
-            data = response.json()
-            return data.get("data", data) if isinstance(data, dict) else data
-
-    async def get_all_users_group_id(self) -> int:
-        await self._get_session_token()
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{self.base_url}/api/permissions/group", headers=self._get_headers())
-            for g in response.json():
-                if g.get("name") == "All Users": return g["id"]
-        return 1
-
-    async def set_database_permissions(self, group_id: int, database_id: int, schema_name: str = "public", permission: str = "all"):
-        await self._get_session_token()
-        async with httpx.AsyncClient() as client:
-            graph_resp = await client.get(f"{self.base_url}/api/permissions/graph", headers=self._get_headers())
-            graph = graph_resp.json()
-            
-            if "groups" not in graph: graph["groups"] = {}
-            if str(group_id) not in graph["groups"]: graph["groups"][str(group_id)] = {}
-            
-            graph["groups"][str(group_id)][str(database_id)] = {
-                "schemas": {schema_name: permission},
-                "native": "write"
-            }
-            await client.put(f"{self.base_url}/api/permissions/graph", json=graph, headers=self._get_headers())
-    
-    # ==================== COLLECTIONS & GROUPS ====================
+    # ==================== COLLECTIONS ====================
 
     async def create_collection(self, name: str, description: str = ""):
         """Create a new collection for a workspace."""
@@ -161,10 +94,9 @@ class MetabaseClient:
             return response.json()
 
     async def enable_collection_embedding(self, collection_id: int):
-        """Enable embedding for a specific collection."""
+        """The 'Self-Healing' fix: Programmatically toggles 'Enable Embedding' for a collection."""
         await self._get_session_token()
         async with httpx.AsyncClient() as client:
-            # Note: Some Metabase versions use a PUT on the collection, others a specific setting
             response = await client.put(
                 f"{self.base_url}/api/collection/{collection_id}", 
                 json={"enabled_embedding": True}, 
@@ -172,58 +104,117 @@ class MetabaseClient:
             )
             return response.status_code
 
+    async def get_collection_items(self, collection_id: int) -> list:
+        """Fetches all items (dashboards, questions) inside a collection."""
+        await self._get_session_token()
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{self.base_url}/api/collection/{collection_id}/items", headers=self._get_headers())
+            data = resp.json()
+            return data.get("data", data) if isinstance(data, dict) else data
+
+    # ==================== DATABASE PROVISIONING ====================
+
+    async def add_database(self, name: str, engine: str, host: str, port: int, dbname: str, user: str, password: str):
+        """Connects a new database to Metabase."""
+        await self._get_session_token()
+        details = {
+            "host": host,
+            "port": int(port),
+            "dbname": dbname,
+            "user": user,
+            "password": password,
+            "ssl": False
+        }
+        payload = {
+            "name": name,
+            "engine": engine,
+            "details": details,
+            "auto_run_queries": True,
+            "is_full_sync": True
+        }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{self.base_url}/api/database", json=payload, headers=self._get_headers())
+            if response.status_code != 200:
+                logger.error(f"Failed to add DB: {response.text}")
+                return None
+            return response.json()
+
+    async def list_databases(self):
+        """Lists all databases connected to Metabase."""
+        await self._get_session_token()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{self.base_url}/api/database", headers=self._get_headers())
+            data = response.json()
+            return data.get("data", data) if isinstance(data, dict) else data
+
+    # ==================== PERMISSIONS & GROUPS ====================
+
     async def create_group(self, name: str):
-        """Create a new permission group for the workspace."""
+        """Creates a Metabase permission group."""
         await self._get_session_token()
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{self.base_url}/api/permissions/group", json={"name": name}, headers=self._get_headers())
             response.raise_for_status()
             return response.json()
 
-    async def set_collection_permissions(self, group_id: int, collection_id: int, permission: str = "write"):
-        """Give a group access to a specific collection."""
+    async def get_all_users_group_id(self) -> int:
+        """Finds the ID of the default 'All Users' group."""
         await self._get_session_token()
         async with httpx.AsyncClient() as client:
-            # Metabase handles collection perms via the permissions graph
-            graph_resp = await client.get(f"{self.base_url}/api/permissions/membership_graph", headers=self._get_headers())
+            response = await client.get(f"{self.base_url}/api/permissions/group", headers=self._get_headers())
+            for g in response.json():
+                if g.get("name") == "All Users": return g["id"]
+        return 1
+
+    async def set_database_permissions(self, group_id: int, database_id: int, schema_name: str = "public", permission: str = "all"):
+        """Updates the permission graph for a database."""
+        await self._get_session_token()
+        async with httpx.AsyncClient() as client:
+            graph_resp = await client.get(f"{self.base_url}/api/permissions/graph", headers=self._get_headers())
             graph = graph_resp.json()
-            # If membership_graph isn't available, standard graph for collections:
-            # This is a simplified version; production might need deeper graph traversal
+            
+            if "groups" not in graph: graph["groups"] = {}
+            if str(group_id) not in graph["groups"]: graph["groups"][str(group_id)] = {}
+            
+            graph["groups"][str(group_id)][str(database_id)] = {
+                "schemas": {schema_name: permission},
+                "native": "write"
+            }
+            await client.put(f"{self.base_url}/api/permissions/graph", json=graph, headers=self._get_headers())
+
+    async def set_collection_permissions(self, group_id: int, collection_id: int, permission: str = "write"):
+        """Updates the permission graph for a collection."""
+        await self._get_session_token()
+        async with httpx.AsyncClient() as client:
             payload = {"groups": {str(group_id): {str(collection_id): permission}}}
             return await client.put(f"{self.base_url}/api/collection/graph", json=payload, headers=self._get_headers())
 
-    # ==================== USER PROVISIONING ====================
-
-    async def get_user_by_email(self, email: str):
-        """Check if a user already exists in Metabase."""
-        await self._get_session_token()
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{self.base_url}/api/user", headers=self._get_headers())
-            users = response.json()
-            for user in users:
-                if user.get("email") == email:
-                    return user
-            return None
-
-    async def create_metabase_user(self, email: str, first_name: str, last_name: str, password: str):
-        """Create a new user account in Metabase."""
-        await self._get_session_token()
-        payload = {
-            "first_name": first_name,
-            "last_name": last_name,
-            "email": email,
-            "password": password
-        }
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f"{self.base_url}/api/user", json=payload, headers=self._get_headers())
-            response.raise_for_status()
-            return response.json()
-
     async def add_user_to_group(self, user_id: int, group_id: int):
-        """Add a Metabase user to a specific permission group."""
+        """Adds a Metabase user to a permission group."""
         await self._get_session_token()
         payload = {"group_id": group_id, "user_id": user_id}
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{self.base_url}/api/permissions/membership", json=payload, headers=self._get_headers())
             return response.json()
 
+    # ==================== EMBEDDING & URLS ====================
+
+    def get_dashboard_embed_url(self, dashboard_id: int) -> str:
+        """Generates a signed JWT URL for an individual dashboard iframe."""
+        payload = {
+            "resource": {"dashboard": dashboard_id},
+            "params": {},
+            "exp": int(time.time()) + 3600 
+        }
+        token = jwt.encode(payload, self.embedding_secret, algorithm="HS256")
+        return f"{self.base_url}/embed/dashboard/{token}#bordered=false&titled=false"
+
+    def get_embedded_collection_url(self, collection_id: int) -> str:
+        """Generates a signed JWT URL for an entire collection iframe."""
+        payload = {
+            "resource": {"collection": collection_id},
+            "params": {},
+            "exp": int(time.time()) + 3600
+        }
+        token = jwt.encode(payload, self.embedding_secret, algorithm="HS256")
+        return f"/embed/collection/{token}"

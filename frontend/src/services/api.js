@@ -1,64 +1,40 @@
-import axios from 'axios'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import axios from 'axios';
 
 const api = axios.create({
-  baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
+  // Point to the root of your backend
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+});
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('token');
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+    config.headers.Authorization = `Bearer ${token}`;
   }
-  return config
-})
+  return config;
+});
 
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('userEmail')
-      window.location.href = '/login'
-    }
-    return Promise.reject(error)
-  }
-)
+export const authAPI = {
+  // Matches OpenAPI: /auth/signup and /auth/login
+  register: (data) => api.post('/auth/signup', data),
+  login: (credentials) => api.post('/auth/login', credentials),
+};
 
 export const workspaceAPI = {
-  // Get all workspaces
+  // Matches OpenAPI: /api/workspaces
   getAll: () => api.get('/api/workspaces'),
-  
-  // Get workspace by ID
   getById: (id) => api.get(`/api/workspaces/${id}`),
-  
-  // Create workspace
   create: (data) => api.post('/api/workspaces', data),
   
-  // Add user to workspace
-  addUser: (workspaceId, userId) => 
-    api.post(`/api/workspaces/${workspaceId}/users/${userId}`),
-}
+  // Matches OpenAPI: /api/workspaces/{id}/embed
+  getEmbedUrl: (id) => api.get(`/api/workspaces/${id}/embed`),
+};
 
 export const dashboardAPI = {
-  // Get all dashboards for workspace
-  getAll: (workspaceId) => 
-    api.get('/api/dashboards', { params: { workspace_id: workspaceId } }),
+  // Matches OpenAPI: /api/workspaces/{id}/dashboards
+  getAll: (workspaceId) => api.get(`/api/workspaces/${workspaceId}/dashboards`),
   
-  // Get dashboard by ID
-  getById: (id) => api.get(`/api/dashboards/${id}`),
-  
-  // Create dashboard
-  create: (data) => api.post('/api/dashboards', data),
-}
+  // Matches OpenAPI: /api/workspaces/dashboards/{id}/embed
+  getEmbedUrl: (id) => api.get(`/api/workspaces/dashboards/${id}/embed`),
+};
 
-export const userAPI = {
-  // Get current user
-  getMe: () => api.get('/api/auth/me'),
-}
-
-export default api
+export default api;

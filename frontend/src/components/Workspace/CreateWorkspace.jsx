@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Briefcase } from 'lucide-react'
+import { Briefcase, Loader2 } from 'lucide-react'
 import { workspaceAPI } from '../../services/api'
 import toast from 'react-hot-toast'
 import { generateSlug } from '../../utils/helpers'
@@ -48,67 +48,61 @@ export default function CreateWorkspace({ onSuccess, onCancel }) {
         </p>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Workspace Name <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          value={formData.name}
-          onChange={handleNameChange}
-          className="input-field"
-          placeholder="e.g., Marketing Analytics"
-          required
-        />
-        <p className="text-xs text-gray-500 mt-1">
-          Choose a descriptive name for your workspace
-        </p>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Workspace Name <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            value={formData.name}
+            onChange={handleNameChange}
+            className="input-field"
+            placeholder="e.g., Marketing Analytics"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Workspace Slug <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            value={formData.slug}
+            onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+            className="input-field"
+            placeholder="e.g., marketing-analytics"
+            required
+            pattern="[a-z0-9-]+"
+          />
+        </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Workspace Slug <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          value={formData.slug}
-          onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-          className="input-field"
-          placeholder="e.g., marketing-analytics"
-          required
-          pattern="[a-z0-9-]+"
-          title="Only lowercase letters, numbers, and hyphens are allowed"
-        />
-        <p className="text-xs text-gray-500 mt-1">
-          Used in URLs. Only lowercase letters, numbers, and hyphens.
-        </p>
-      </div>
-
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="font-medium text-blue-900 mb-2">What happens next?</h4>
-        <ul className="text-sm text-blue-800 space-y-1">
-          <li>• A new workspace will be created</li>
-          <li>• A Metabase group will be automatically set up</li>
-          <li>• A collection will be created for your dashboards</li>
-          <li>• You can start creating dashboards immediately</li>
+      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+        <h4 className="font-semibold text-blue-900 text-sm mb-2">Backend Automation</h4>
+        <ul className="text-xs text-blue-700 space-y-1.5">
+          <li className="flex items-center">• Automatically creates Metabase Groups</li>
+          <li className="flex items-center">• Provisions a new Dashboard Collection</li>
+          <li className="flex items-center">• Sets up multi-tenant permissions</li>
         </ul>
       </div>
 
-      <div className="flex space-x-3 pt-4">
+      <div className="flex space-x-3 pt-2">
         <button
           type="button"
           onClick={onCancel}
-          className="flex-1 btn-secondary"
+          className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
           disabled={loading}
         >
           Cancel
         </button>
         <button
           type="submit"
-          className="flex-1 btn-primary"
+          className="flex-1 btn-primary py-2.5 flex items-center justify-center"
           disabled={loading}
         >
-          {loading ? 'Creating...' : 'Create Workspace'}
+          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Workspace'}
         </button>
       </div>
     </form>
